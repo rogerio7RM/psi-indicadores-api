@@ -1875,6 +1875,26 @@ def api_recommendations():
     resp.headers["Access-Control-Allow-Origin"] = "*"
     return resp
 
+@app.route("/api/indicadores")
+def api_indicadores():
+    tickers_raw = normalize_ticker_string(request.args.get("tickers", ""))
+    lang = resolve_lang(request.args.get("lang"))
+    symbols = split_tickers(tickers_raw)
+    if not symbols:
+        resp = jsonify({"error": "Please provide at least one ticker symbol."})
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        return resp, 400
+
+    resultados = process_tickers(symbols, lang)
+    payload = {
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "count": len(resultados),
+        "data": resultados,
+    }
+    resp = jsonify(payload)
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    return resp
+
 @app.route("/logo")
 def logo_image():
     logo_path = get_logo_path()
