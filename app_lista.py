@@ -470,6 +470,14 @@ def _get_yf_session():
     session.mount("http://", adapter)
     return session
 
+def _use_stooq_only():
+    if os.getenv("USE_STOOQ_ONLY") == "1":
+        return True
+    # Render sets environment variables like RENDER or RENDER_SERVICE_NAME
+    if os.getenv("RENDER") or os.getenv("RENDER_SERVICE_NAME"):
+        return True
+    return False
+
 def _stooq_symbol(ticker):
     symbol = (ticker or "").strip().lower()
     if not symbol:
@@ -679,6 +687,20 @@ def _parse_int(raw, default, min_value=None, max_value=None):
 
 def obter_snapshot_preco(ticker):
     """Return current price, previous close and intraday change percentage."""
+    if _use_stooq_only():
+        stooq_df = _stooq_download(ticker)
+        if stooq_df.empty:
+            return {"price": None, "previous_close": None, "change_pct": None}
+        closes = stooq_df["Close"].dropna()
+        if closes.empty:
+            return {"price": None, "previous_close": None, "change_pct": None}
+        price = _safe_float(closes.iloc[-1])
+        previous_close = _safe_float(closes.iloc[-2]) if len(closes) >= 2 else price
+        change_pct = None
+        if price is not None and previous_close not in (None, 0):
+            change_pct = ((price - previous_close) / previous_close) * 100
+        return {"price": price, "previous_close": previous_close, "change_pct": change_pct}
+
     session = _get_yf_session()
     try:
         ticker_obj = yf.Ticker(ticker, session=session)
@@ -743,6 +765,12 @@ def obter_preco_atual(ticker):
 
 
 def baixar_dados(ticker, period="6mo", interval="1d"):
+    if _use_stooq_only():
+        df = _stooq_download(ticker)
+        if df is None or df.empty:
+            return pd.DataFrame()
+        return df
+
     session = _get_yf_session()
     try:
         df = yf.download(
