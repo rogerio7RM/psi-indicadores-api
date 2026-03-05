@@ -470,6 +470,43 @@ def _get_yf_session():
     session.mount("http://", adapter)
     return session
 
+def _stooq_symbol(ticker):
+    symbol = (ticker or "").strip().lower()
+    if not symbol:
+        return symbol
+    if "." not in symbol:
+        symbol = f"{symbol}.us"
+    return symbol
+
+def _stooq_download(ticker):
+    symbol = _stooq_symbol(ticker)
+    if not symbol:
+        return pd.DataFrame()
+    url = f"https://stooq.com/q/d/l/?s={symbol}&i=d"
+    session = _get_yf_session()
+    try:
+        resp = session.get(url, timeout=15)
+    except Exception:
+        return pd.DataFrame()
+    if not resp.ok:
+        return pd.DataFrame()
+    try:
+        df = pd.read_csv(io.StringIO(resp.text))
+    except Exception:
+        return pd.DataFrame()
+    if df is None or df.empty or "Date" not in df.columns:
+        return pd.DataFrame()
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    df = df.dropna(subset=["Date"]).set_index("Date").sort_index()
+    cols = ["Open", "High", "Low", "Close", "Volume"]
+    if any(col not in df.columns for col in cols):
+        return pd.DataFrame()
+    df = df[cols].copy()
+    for col in cols:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    df = df.dropna(how="any")
+    return df
+
 
 def normalize_ticker_string(raw):
     return (raw or "").upper().replace(" ", "")
@@ -682,6 +719,17 @@ def obter_snapshot_preco(ticker):
         except Exception:
             pass
 
+    if price is None or previous_close is None:
+        stooq_df = _stooq_download(ticker)
+        if not stooq_df.empty:
+            closes = stooq_df["Close"].dropna()
+            if not closes.empty and price is None:
+                price = _safe_float(closes.iloc[-1])
+            if len(closes) >= 2 and previous_close is None:
+                previous_close = _safe_float(closes.iloc[-2])
+            elif len(closes) == 1 and previous_close is None:
+                previous_close = _safe_float(closes.iloc[-1])
+
     change_pct = None
     if price is not None and previous_close not in (None, 0):
         change_pct = ((price - previous_close) / previous_close) * 100
@@ -696,24 +744,29 @@ def obter_preco_atual(ticker):
 
 def baixar_dados(ticker, period="6mo", interval="1d"):
     session = _get_yf_session()
-    df = yf.download(
-        ticker,
-        period=period,
-        interval=interval,
-        auto_adjust=False,
-        progress=False,
-        threads=False,
-        group_by="column",
-        session=session
-    )
+    try:
+        df = yf.download(
+            ticker,
+            period=period,
+            interval=interval,
+            auto_adjust=False,
+            progress=False,
+            threads=False,
+            group_by="column",
+            session=session
+        )
+    except Exception:
+        df = pd.DataFrame()
     if df is None or df.empty:
         try:
             ticker_obj = yf.Ticker(ticker, session=session)
             df = ticker_obj.history(period=period, interval=interval, auto_adjust=False)
         except Exception:
-            return pd.DataFrame()
+            df = pd.DataFrame()
         if df is None or df.empty:
-            return pd.DataFrame()
+            df = _stooq_download(ticker)
+            if df is None or df.empty:
+                return pd.DataFrame()
 
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
