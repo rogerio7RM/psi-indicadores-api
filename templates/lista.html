@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ i18n.list_title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+    th { text-align: left; color: var(--muted); font-weight: 600; }
+    .pill { padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); font-weight: 700; }
+    .pill.buy { background: rgba(0,194,138,.12); color: var(--ok); }
+    .pill.sell { background: rgba(255,107,107,.12); color: var(--danger); }
+    .pill.neutral { background: rgba(255,176,32,.12); color: var(--warn); }
+    .ticker-link { color: var(--accent); text-decoration: none; font-weight: 700; }
+    .ticker-link:hover { text-decoration: underline; }
+    .ticker-wrap { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .ticker-change { font-size: 12px; font-weight: 700; }
+    .ticker-change.up { color: var(--ok); }
+    .ticker-change.down { color: var(--danger); }
+    .ticker-change.flat { color: var(--muted); }
+    .dcf-btn {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: var(--text);
+      background: #eef2fb;
+      text-decoration: none;
+    }
+    .dcf-btn:hover { background: #e1e7f6; }
+    .muted { color: var(--muted); font-size: 12px; }
+    .actions-bar { display: flex; justify-content: flex-end; gap: 12px; margin-bottom: 16px; }
+    .actions-bar button { margin: 0; }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <header class="brand-bar">
+      <img src="{{ url_for('logo_image') }}" alt="PrimeSphere logo">
+      <div>
+        <h1>{{ i18n.list_title }}</h1>
+        <p>{{ i18n.list_subtitle }}</p>
+      </div>
+    </header>
+
+    <form method="post" class="card form-card">
+      <label>{{ i18n.language }}</label>
+      <div class="lang-select">
+        <label class="lang-option">
+          <input type="radio" name="lang" value="pt" {% if lang == 'pt' %}checked{% endif %}>
+          <span class="lang-flag pt">{{ i18n.language_pt }}</span>
+        </label>
+        <label class="lang-option">
+          <input type="radio" name="lang" value="en" {% if lang == 'en' %}checked{% endif %}>
+          <span class="lang-flag en">{{ i18n.language_en }}</span>
+        </label>
+        <label class="lang-option">
+          <input type="radio" name="lang" value="es" {% if lang == 'es' %}checked{% endif %}>
+          <span class="lang-flag es">{{ i18n.language_es }}</span>
+        </label>
+      </div>
+
+      <label for="tickers">{{ i18n.list_form_label }}</label>
+      <input id="tickers" name="tickers" type="text" placeholder="{{ i18n.list_form_placeholder }}"
+             value="{{ tickers or '' }}" />
+      <button type="submit">{{ i18n.list_analyze }}</button>
+      <p class="hint">{{ i18n.list_hint }}</p>
+    </form>
+
+    {% if erro %}
+      <div class="card error"><strong>{{ i18n.error }}:</strong> {{ erro }}</div>
+    {% endif %}
+
+    <div class="card">
+      <h2>{{ i18n.list_results }}</h2>
+      {% if resultados %}
+        <div class="actions-bar">
+          <form method="get" action="{{ url_for('export_results', fmt='docx') }}">
+            <input type="hidden" name="tickers" value="{{ tickers or '' }}" />
+            <input type="hidden" name="lang" value="{{ lang }}">
+            <button type="submit">{{ i18n.download_report }}</button>
+          </form>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>{{ i18n.list_table_ticker }}</th>
+              <th>{{ i18n.list_table_price }}</th>
+              <th>RSI</th>
+              <th>{{ i18n.list_table_macd }}</th>
+              <th>ADX</th>
+              <th>CMF</th>
+              <th>{{ i18n.list_table_recommendation }}</th>
+              <th>{{ i18n.list_table_summary }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for tk, res in resultados.items() %}
+              <tr>
+                <td>
+                  {% if res.erro %}
+                    <span class="muted">{{ tk }}</span>
+                  {% else %}
+                    <span class="ticker-wrap">
+                      <a class="ticker-link"
+                         href="{{ graph_base }}/grafico/{{ tk }}?period=1y&interval=1d&weekly=0&lang={{ lang }}"
+                         target="_blank" rel="noopener">
+                        {{ tk }}
+                      </a>
+                      {% if res.change_pct_today is not none %}
+                        <span class="ticker-change {% if res.change_pct_today > 0 %}up{% elif res.change_pct_today < 0 %}down{% else %}flat{% endif %}">
+                          ({{ i18n.change_today }} {{ '%+.2f%%' % res.change_pct_today }})
+                        </span>
+                      {% endif %}
+                      {% if res.change_pct_prev_close is not none %}
+                        <span class="ticker-change {% if res.change_pct_prev_close > 0 %}up{% elif res.change_pct_prev_close < 0 %}down{% else %}flat{% endif %}">
+                          ({{ i18n.change_prev_close }} {{ '%+.2f%%' % res.change_pct_prev_close }})
+                        </span>
+                      {% endif %}
+                      <a class="dcf-btn"
+                         href="{{ url_for('dcf_view', ticker=tk) }}?lang={{ lang }}"
+                         target="_blank" rel="noopener">
+                        {{ i18n.list_dcf_button }}
+                      </a>
+                    </span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if res.erro %}
+                    <span class="muted">--</span>
+                  {% else %}
+                    {% set price = res.price if res.price is not none else res.close %}
+                    {% if price is none %}
+                      <span class="muted">--</span>
+                    {% else %}
+                      {{ '%.2f' % price }}
+                      {% if res.price_source == 'live' %}
+                        <span class="price-chip live">{{ i18n.price_live }}</span>
+                      {% elif res.price_source == 'previous_close' %}
+                        <span class="price-chip prev">{{ i18n.price_prev_close }}</span>
+                      {% endif %}
+                    {% endif %}
+                  {% endif %}
+                </td>
+                <td>
+                  {% if res.erro %}<span class="muted">--</span>{% else %}{{ res.RSI }}{% endif %}
+                </td>
+                <td>
+                  {% if res.erro %}<span class="muted">--</span>{% else %}{{ res.MACD }} / {{ res.MACD_Signal }}{% endif %}
+                </td>
+                <td>
+                  {% if res.erro %}<span class="muted">--</span>{% else %}{{ res.ADX }}{% endif %}
+                </td>
+                <td>
+                  {% if res.erro %}<span class="muted">--</span>{% else %}{{ res.CMF }}{% endif %}
+                </td>
+                <td>
+                  {% if res.erro %}
+                    <span class="pill neutral">{{ i18n.unavailable }}</span>
+                  {% else %}
+                    <span class="pill {% if 'ENTRY' in res.recomendacao %}buy{% elif 'EXIT' in res.recomendacao %}sell{% else %}neutral{% endif %}">
+                      {{ res.recomendacao_label if res.recomendacao_label else res.recomendacao }}
+                    </span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if res.erro %}
+                    <span class="muted">{{ res.erro }}</span>
+                  {% else %}
+                    <ul class="bullets" style="margin:0 0 0 18px;">
+                      {% for r in res.rationale %}
+                        <li>{{ r }}</li>
+                      {% endfor %}
+                    </ul>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="muted">{{ i18n.list_empty }}</p>
+      {% endif %}
+    </div>
+  </main>
+  <script>
+    (function () {
+      var inputs = document.querySelectorAll('input[name="lang"]');
+      if (!inputs.length) { return; }
+      function updateLang(value) {
+        var url = new URL(window.location.href);
+        url.searchParams.set('lang', value);
+        window.location.href = url.toString();
+      }
+      inputs.forEach(function (input) {
+        input.addEventListener('change', function () {
+          var form = input.closest('form');
+          var tickerInput = form ? form.querySelector('input[name="ticker"]') : null;
+          var tickersInput = form ? form.querySelector('input[name="tickers"]') : null;
+          var hasTicker = tickerInput && tickerInput.value.trim() !== '';
+          var hasTickers = tickersInput && tickersInput.value.trim() !== '';
+          if (form && (hasTicker || hasTickers)) {
+            form.submit();
+          } else {
+            updateLang(input.value);
+          }
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

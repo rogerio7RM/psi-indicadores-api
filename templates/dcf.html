@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ i18n.dcf_title }} - {{ company_name }} ({{ ticker }})</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+    .section-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+    .table-title { margin-bottom: 6px; color: var(--muted); font-size: 12px; }
+    .dcf-step { margin-top: 16px; }
+    .dcf-step h3 { margin: 0 0 8px; font-size: 15px; color: var(--text); }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <header class="brand-bar">
+      <img src="{{ url_for('logo_image') }}" alt="PrimeSphere logo">
+      <div>
+        <h1>{{ i18n.dcf_title }} - {{ company_name }} ({{ ticker }})</h1>
+        <p>{{ i18n.dcf_subtitle }}</p>
+      </div>
+    </header>
+    <div class="lang-select" style="margin: 6px 0 18px;">
+      <span class="muted" style="margin-right: 8px;">{{ i18n.language }}</span>
+      <label class="lang-option">
+        <input type="radio" name="lang" value="pt" {% if lang == 'pt' %}checked{% endif %}>
+        <span class="lang-flag pt">{{ i18n.language_pt }}</span>
+      </label>
+      <label class="lang-option">
+        <input type="radio" name="lang" value="en" {% if lang == 'en' %}checked{% endif %}>
+        <span class="lang-flag en">{{ i18n.language_en }}</span>
+      </label>
+      <label class="lang-option">
+        <input type="radio" name="lang" value="es" {% if lang == 'es' %}checked{% endif %}>
+        <span class="lang-flag es">{{ i18n.language_es }}</span>
+      </label>
+    </div>
+
+    {% if erro %}
+      <div class="card error"><strong>{{ i18n.error }}:</strong> {{ erro }}</div>
+    {% endif %}
+
+    {% if dcf_rows %}
+      <div class="card">
+        <h2>{{ i18n.dcf_structured_title }} - {{ company_name }}</h2>
+
+        <div class="dcf-step">
+          <h3>1. {{ i18n.dcf_base_title }} ({{ base_period }})</h3>
+          <div class="grid grid-3">
+            {% for label, value in base_snapshot %}
+              <div class="metric">
+                <span class="k">{{ label }}</span>
+                <span class="v">{{ value }}</span>
+              </div>
+            {% endfor %}
+          </div>
+          {% if base_note %}
+            <p class="section-note">{{ base_note }}</p>
+          {% endif %}
+        </div>
+
+        <div class="dcf-step">
+          <h3>2. {{ i18n.dcf_assumptions_title }}</h3>
+          <div class="grid grid-3">
+            {% for label, value in assumptions %}
+              <div class="metric">
+                <span class="k">{{ label }}</span>
+                <span class="v">{{ value }}</span>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="dcf-step">
+          <h3>3. {{ i18n.dcf_projection_title }}</h3>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>{{ i18n.dcf_table_year }}</th>
+                  <th>{{ i18n.dcf_table_fcf }} ({{ amount_unit }})</th>
+                  <th>{{ i18n.dcf_table_discount }}</th>
+                  <th>{{ i18n.dcf_table_pv }} ({{ amount_unit }})</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in dcf_rows %}
+                  <tr>
+                    <td class="label">{{ row.year }}</td>
+                    <td>{{ row.fcf }}</td>
+                    <td>{{ row.discount }}</td>
+                    <td>{{ row.pv }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="dcf-step">
+          <h3>4. {{ i18n.dcf_terminal_title }}</h3>
+          <div class="grid grid-2">
+            <div class="metric">
+              <span class="k">{{ i18n.dcf_terminal_value }}</span>
+              <span class="v">{{ terminal_value_fmt }}</span>
+            </div>
+            <div class="metric">
+              <span class="k">{{ i18n.dcf_terminal_pv }}</span>
+              <span class="v">{{ terminal_pv_fmt }}</span>
+            </div>
+          </div>
+          {% if terminal_formula %}
+            <p class="section-note">{{ terminal_formula }}</p>
+          {% endif %}
+        </div>
+
+        <div class="dcf-step">
+          <h3>5. {{ i18n.dcf_discount_title }}</h3>
+          <div class="grid grid-2">
+            <div class="metric">
+              <span class="k">{{ pv_sum_label }}</span>
+              <span class="v">{{ pv_total_fmt }}</span>
+            </div>
+            <div class="metric">
+              <span class="k">{{ i18n.dcf_terminal_pv }}</span>
+              <span class="v">{{ terminal_pv_fmt }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="dcf-step">
+          <h3>6. {{ i18n.dcf_ev_title }}</h3>
+          <div class="grid grid-2">
+            <div class="metric">
+              <span class="k">{{ i18n.dcf_summary_enterprise }}</span>
+              <span class="v">{{ enterprise_value_fmt }}</span>
+            </div>
+            {% if market_cap_fmt %}
+              <div class="metric">
+                <span class="k">{{ i18n.dcf_market_cap }}</span>
+                <span class="v">{{ market_cap_fmt }}</span>
+              </div>
+            {% endif %}
+          </div>
+        </div>
+
+        {% if interpretation_points %}
+          <div class="dcf-step">
+            <h3>7. {{ i18n.dcf_interpretation_title }}</h3>
+            <ul class="bullets">
+              {% for item in interpretation_points %}
+                <li>{{ item }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endif %}
+
+        {% if sensitivity_notes %}
+          <div class="dcf-step">
+            <h3>8. {{ i18n.dcf_sensitivity_summary_title }}</h3>
+            <ul class="bullets">
+              {% for item in sensitivity_notes %}
+                <li>{{ item }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endif %}
+
+        {% if conclusion_points %}
+          <div class="dcf-step">
+            <h3>9. {{ i18n.dcf_conclusion_title }}</h3>
+            <ul class="bullets">
+              {% for item in conclusion_points %}
+                <li>{{ item }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    {% if latest_metrics %}
+      <div class="card">
+        <h2>{{ i18n.dcf_latest_title }}</h2>
+        <div class="grid grid-2">
+          {% for label, value in latest_metrics %}
+            <div class="metric">
+              <span class="k">{{ label }}</span>
+              <span class="v">{{ value }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
+    {% if history_rows %}
+      <div class="card">
+        <h2>{{ i18n.dcf_history_title }}</h2>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>{{ i18n.dcf_field_period }}</th>
+                <th>{{ i18n.dcf_field_revenue }}</th>
+                <th>{{ i18n.dcf_field_fcf }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in history_rows %}
+                <tr>
+                  <td class="label">{{ row.period }}</td>
+                  <td>{{ row.revenue }}</td>
+                  <td>{{ row.fcf }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% endif %}
+
+    {% if sensitivity %}
+      <div class="card">
+        <h2>{{ i18n.dcf_sensitivity_title }}</h2>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>{{ i18n.dcf_field_terminal_growth }} \ {{ i18n.dcf_field_discount_rate }}</th>
+                {% for dr in sensitivity.discount_rates %}
+                  <th>{{ dr }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in sensitivity.rows %}
+                <tr>
+                  <td class="label">{{ row.terminal }}</td>
+                  {% for val in row.cells %}
+                    <td>{{ val }}</td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <p class="section-note">{{ i18n.dcf_per_share_note }} ({{ currency }})</p>
+      </div>
+    {% endif %}
+
+    {% if notes %}
+      <div class="card">
+        <h2>{{ i18n.dcf_notes_title }}</h2>
+        <ul class="bullets">
+          {% for note in notes %}
+            <li>{{ note }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+  </main>
+  <script>
+    (function () {
+      var inputs = document.querySelectorAll('input[name="lang"]');
+      if (!inputs.length) { return; }
+      function updateLang(value) {
+        var url = new URL(window.location.href);
+        url.searchParams.set('lang', value);
+        window.location.href = url.toString();
+      }
+      inputs.forEach(function (input) {
+        input.addEventListener('change', function () {
+          updateLang(input.value);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

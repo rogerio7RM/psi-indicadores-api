@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ i18n.title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+    .action-card { display: flex; justify-content: flex-end; gap: 12px; padding: 16px; }
+    .action-card button { margin: 0; }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <header class="brand-bar">
+      <img src="{{ url_for('logo_image') }}" alt="PrimeSphere logo">
+      <div>
+        <h1>{{ i18n.title }}</h1>
+        <p>
+          {{ i18n.subtitle }} <a href="{{ url_for('indicator_guide', lang=lang) }}" target="_blank" rel="noopener">{{ i18n.guide_link }}</a>
+          | <a href="{{ url_for('backtest', lang=lang) }}">{{ i18n.backtest_link }}</a>
+        </p>
+      </div>
+    </header>
+
+    <form method="post" class="card form-card">
+      <label>{{ i18n.language }}</label>
+      <div class="lang-select">
+        <label class="lang-option">
+          <input type="radio" name="lang" value="pt" {% if lang == 'pt' %}checked{% endif %}>
+          <span class="lang-flag pt">{{ i18n.language_pt }}</span>
+        </label>
+        <label class="lang-option">
+          <input type="radio" name="lang" value="en" {% if lang == 'en' %}checked{% endif %}>
+          <span class="lang-flag en">{{ i18n.language_en }}</span>
+        </label>
+        <label class="lang-option">
+          <input type="radio" name="lang" value="es" {% if lang == 'es' %}checked{% endif %}>
+          <span class="lang-flag es">{{ i18n.language_es }}</span>
+        </label>
+      </div>
+
+      <label for="ticker">{{ i18n.form_ticker }}</label>
+      <input id="ticker" name="ticker" type="text"
+             placeholder="{{ i18n.form_ticker_placeholder }}"
+             value="{{ ticker or '' }}" required />
+
+      <label for="period">{{ i18n.form_period }}</label>
+      <select id="period" name="period">
+        {% for p in ["1d","5d","7d","1mo","3mo","6mo","1y","2y","5y","10y","ytd","max"] %}
+          <option value="{{p}}" {% if period==p %}selected{% endif %}>{{p}}</option>
+        {% endfor %}
+      </select>
+
+      <label for="interval">{{ i18n.form_interval }}</label>
+      <select id="interval" name="interval">
+        {% for i in ["1m","2m","5m","15m","30m","60m","90m","1h","1d","5d","1wk","1mo","3mo"] %}
+          <option value="{{i}}" {% if interval==i %}selected{% endif %}>{{i}}</option>
+        {% endfor %}
+      </select>
+
+      <label class="checkbox">
+        <input type="checkbox" name="show_weekly" {% if show_weekly %}checked{% endif %} />
+        {{ i18n.form_show_weekly }}
+      </label>
+
+      <button type="submit">{{ i18n.form_run }}</button>
+      <p class="hint">{{ i18n.form_hint }}</p>
+    </form>
+
+    {% if erro %}
+      <div class="card error">
+        <strong>{{ i18n.error }}:</strong> {{ erro }}
+      </div>
+    {% endif %}
+
+    {% if ajuste_msg %}
+      <div class="card warn">
+        <strong>{{ i18n.adjustment }}:</strong> {{ ajuste_msg }}
+      </div>
+    {% endif %}
+
+    {% if analise or analise_sem %}
+    <form method="get" action="{{ url_for('export_analysis_docx') }}" class="card action-card">
+      <input type="hidden" name="ticker" value="{{ ticker or '' }}">
+      <input type="hidden" name="period" value="{{ period or '1y' }}">
+      <input type="hidden" name="interval" value="{{ interval or '1d' }}">
+      <input type="hidden" name="show_weekly" value="{{ '1' if show_weekly else '0' }}">
+      <input type="hidden" name="lang" value="{{ lang }}">
+      <button type="submit">{{ i18n.download_report }}</button>
+    </form>
+    {% endif %}
+
+    {% if grafico %}
+      <section class="charts {% if not grafico_sem %}single{% endif %}">
+        <div class="card">
+          <h2>{{ i18n.chart_selected }}</h2>
+          <div class="chart">
+            {{ grafico | safe }}
+          </div>
+
+          {% if dados %}
+          <h3>{{ i18n.latest_metrics }}</h3>
+          <div class="grid grid-2">
+            <div class="metric"><span class="k">{{ i18n.price_last }}</span><span class="v">{{ dados.close }}</span></div>
+            <div class="metric"><span class="k">RSI</span><span class="v">{{ dados.RSI }}</span></div>
+            <div class="metric"><span class="k">ADX</span><span class="v">{{ dados.ADX }}</span></div>
+            <div class="metric"><span class="k">MACD</span><span class="v">{{ dados.MACD }}</span></div>
+            <div class="metric"><span class="k">{{ i18n.macd_signal }}</span><span class="v">{{ dados.MACD_Signal }}</span></div>
+            <div class="metric"><span class="k">ATR</span><span class="v">{{ dados.ATR }}</span></div>
+            <div class="metric"><span class="k">OBV</span><span class="v">{{ dados.OBV }}</span></div>
+            <div class="metric"><span class="k">CMF</span><span class="v">{{ dados.CMF }}</span></div>
+          </div>
+
+          {% if analise %}
+          <section class="analysis">
+            <h3>{{ i18n.analysis_title }}</h3>
+            <div class="badge {{ 'buy' if 'ENTRY' in analise.recomendacao else ('sell' if 'EXIT' in analise.recomendacao else 'neutral') }}">
+              {{ analise.recomendacao_label if analise.recomendacao_label else analise.recomendacao }}
+            </div>
+            <ul class="bullets" id="analise-texto">
+              {% for item in analise.racional %}
+                <li>{{ item }}</li>
+              {% endfor %}
+            </ul>
+            <p class="muted">
+              {{ i18n.suggested_stop }}: <strong id="analise-stop">{{ analise.stop_sugerido }}</strong> |
+              {{ i18n.last_update }}: <span id="analise-ts">{{ analise.timestamp }}</span>
+            </p>
+          </section>
+          {% endif %}
+          {% endif %}
+        </div>
+
+        {% if grafico_sem %}
+        <div class="card">
+          <h2>{{ i18n.chart_weekly }}</h2>
+          <div class="chart">
+            {{ grafico_sem | safe }}
+          </div>
+
+          {% if dados_sem %}
+          <h3>{{ i18n.recent_metrics_weekly }}</h3>
+          <div class="grid grid-2">
+            <div class="metric"><span class="k">{{ i18n.price_last }}</span><span class="v">{{ dados_sem.close }}</span></div>
+            <div class="metric"><span class="k">RSI</span><span class="v">{{ dados_sem.RSI }}</span></div>
+            <div class="metric"><span class="k">ADX</span><span class="v">{{ dados_sem.ADX }}</span></div>
+            <div class="metric"><span class="k">MACD</span><span class="v">{{ dados_sem.MACD }}</span></div>
+            <div class="metric"><span class="k">{{ i18n.macd_signal }}</span><span class="v">{{ dados_sem.MACD_Signal }}</span></div>
+            <div class="metric"><span class="k">ATR</span><span class="v">{{ dados_sem.ATR }}</span></div>
+            <div class="metric"><span class="k">OBV</span><span class="v">{{ dados_sem.OBV }}</span></div>
+            <div class="metric"><span class="k">CMF</span><span class="v">{{ dados_sem.CMF }}</span></div>
+          </div>
+
+          {% if analise_sem %}
+          <section class="analysis">
+            <h3>{{ i18n.analysis_title_weekly }}</h3>
+            <div class="badge {{ 'buy' if 'ENTRY' in analise_sem.recomendacao else ('sell' if 'EXIT' in analise_sem.recomendacao else 'neutral') }}">
+              {{ analise_sem.recomendacao_label if analise_sem.recomendacao_label else analise_sem.recomendacao }}
+            </div>
+            <ul class="bullets" id="analise-sem-texto">
+              {% for item in analise_sem.racional %}
+                <li>{{ item }}</li>
+              {% endfor %}
+            </ul>
+            <p class="muted">
+              {{ i18n.suggested_stop }}: <strong id="analise-sem-stop">{{ analise_sem.stop_sugerido }}</strong> |
+              {{ i18n.last_update }}: <span id="analise-sem-ts">{{ analise_sem.timestamp }}</span>
+            </p>
+          </section>
+          {% endif %}
+          {% endif %}
+        </div>
+        {% endif %}
+      </section>
+
+      {% if market_indicators %}
+      <section class="card">
+        <h2>{{ i18n.market_indicators }}</h2>
+        <div class="market-grid">
+          {% for item in market_indicators %}
+          <div class="market-card">
+            <div class="market-label">{{ item.label }}</div>
+            <div class="market-price">{{ item.price }}</div>
+            <div class="market-change {{ item.direction }}">{{ item.change_pct }}</div>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
+      {% if key_statistics_cols %}
+      <section class="card">
+        <h2>{{ i18n.key_statistics }}</h2>
+        <div class="stats-grid">
+          {% for col in key_statistics_cols %}
+          <div class="stats-col">
+            {% for stat in col %}
+            <div class="stat-row">
+              <span class="label">{{ stat.label }}</span>
+              <span class="value">{{ stat.value }}</span>
+            </div>
+            {% endfor %}
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
+      {% if key_ratios_cols %}
+      <section class="card">
+        <h2>{{ i18n.key_ratios }}</h2>
+        <div class="stats-grid">
+          {% for col in key_ratios_cols %}
+          <div class="stats-col">
+            {% for stat in col %}
+            <div class="stat-row">
+              <span class="label">{{ stat.label }}</span>
+              <span class="value">{{ stat.value }}</span>
+            </div>
+            {% endfor %}
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
+      {% if statements_quarterly %}
+      <section class="card">
+        <h2>{{ i18n.statement_quarterly }}</h2>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Metric</th>
+                {% for col in statements_quarterly.headers %}
+                <th>{{ col }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in statements_quarterly.rows %}
+              <tr>
+                <td class="label">{{ row.label }}</td>
+                {% for val in row.cells %}
+                <td>{{ val }}</td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {% endif %}
+
+      {% if statements_annual %}
+      <section class="card">
+        <h2>{{ i18n.statement_annual }}</h2>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Metric</th>
+                {% for col in statements_annual.headers %}
+                <th>{{ col }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in statements_annual.rows %}
+              <tr>
+                <td class="label">{{ row.label }}</td>
+                {% for val in row.cells %}
+                <td>{{ val }}</td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {% endif %}
+
+      {% if earnings_quarterly or earnings_annual %}
+      <section class="card">
+        <h2>{{ i18n.earnings }}</h2>
+        {% if earnings_quarterly %}
+        <h3>{{ i18n.quarterly }}</h3>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                {% for col in earnings_quarterly.headers %}
+                <th>{{ col }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in earnings_quarterly.rows %}
+              <tr>
+                <td class="label">{{ row.label }}</td>
+                {% for val in row.cells %}
+                <td>{{ val }}</td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+
+        {% if earnings_annual %}
+        <h3>{{ i18n.annual }}</h3>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                {% for col in earnings_annual.headers %}
+                <th>{{ col }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in earnings_annual.rows %}
+              <tr>
+                <td class="label">{{ row.label }}</td>
+                {% for val in row.cells %}
+                <td>{{ val }}</td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+      </section>
+      {% endif %}
+
+      {% if ai_chart %}
+      <section class="card ai-chart">
+        <h2>{{ i18n.ai_chart }}</h2>
+        <h3>{{ ai_chart.title }}</h3>
+        <p class="summary">{{ ai_chart.summary }}</p>
+
+        <div class="analysis-sections">
+          {% for sec in ai_chart.sections %}
+          <div class="analysis-block">
+            <h4>{{ sec.title }}</h4>
+            <ul class="bullets">
+              {% for item in sec.bullets %}
+              <li>{{ item }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endfor %}
+        </div>
+
+        {% if ai_chart.playbook %}
+        <h3>{{ i18n.trade_playbook }}</h3>
+        <div class="table-wrap">
+          <table class="data-table ai-table">
+            <thead>
+              <tr>
+                {% for col in ai_chart.playbook.headers %}
+                <th>{{ col }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in ai_chart.playbook.rows %}
+              <tr>
+                {% for cell in row %}
+                <td class="{% if loop.index0 == 0 %}label{% endif %}">{{ cell }}</td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+
+        <p class="muted">{{ i18n.last_update }}: {{ ai_chart.timestamp }}</p>
+      </section>
+      {% endif %}
+
+    {% endif %}
+  </main>
+
+  <script>
+    (function () {
+      var inputs = document.querySelectorAll('input[name="lang"]');
+      if (!inputs.length) { return; }
+      function updateLang(value) {
+        var url = new URL(window.location.href);
+        url.searchParams.set('lang', value);
+        window.location.href = url.toString();
+      }
+      inputs.forEach(function (input) {
+        input.addEventListener('change', function () {
+          var form = input.closest('form');
+          var tickerInput = form ? form.querySelector('input[name="ticker"]') : null;
+          var tickersInput = form ? form.querySelector('input[name="tickers"]') : null;
+          var hasTicker = tickerInput && tickerInput.value.trim() !== '';
+          var hasTickers = tickersInput && tickersInput.value.trim() !== '';
+          if (form && (hasTicker || hasTickers)) {
+            form.submit();
+          } else {
+            updateLang(input.value);
+          }
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
