@@ -22,6 +22,9 @@ import warnings
 import math
 import smtplib
 import ssl
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from email.message import EmailMessage
 from email.utils import formatdate
 from flask import Flask, render_template, request, send_file, abort, jsonify
@@ -446,6 +449,27 @@ warnings.filterwarnings(
     module=r"ta\.trend"
 )
 
+@lru_cache(maxsize=1)
+def _get_yf_session():
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/122.0.0.0 Safari/537.36"
+        )
+    })
+    retries = Retry(
+        total=3,
+        backoff_factor=0.6,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET", "POST"]
+    )
+    adapter = HTTPAdapter(max_retries=retries)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
 
 def normalize_ticker_string(raw):
     return (raw or "").upper().replace(" ", "")
@@ -618,8 +642,9 @@ def _parse_int(raw, default, min_value=None, max_value=None):
 
 def obter_snapshot_preco(ticker):
     """Return current price, previous close and intraday change percentage."""
+    session = _get_yf_session()
     try:
-        ticker_obj = yf.Ticker(ticker)
+        ticker_obj = yf.Ticker(ticker, session=session)
     except Exception:
         return {"price": None, "previous_close": None, "change_pct": None}
 
@@ -637,7 +662,7 @@ def obter_snapshot_preco(ticker):
 
     if price is None:
         try:
-            hist = ticker_obj.history(period="1d", interval="1m")
+            hist = ticker_obj.history(period="1d", interval="1m", auto_adjust=False)
             if not hist.empty:
                 closes = hist["Close"].dropna()
                 if not closes.empty:
@@ -670,9 +695,25 @@ def obter_preco_atual(ticker):
 
 
 def baixar_dados(ticker, period="6mo", interval="1d"):
-    df = yf.download(ticker, period=period, interval=interval, auto_adjust=False, progress=False)
+    session = _get_yf_session()
+    df = yf.download(
+        ticker,
+        period=period,
+        interval=interval,
+        auto_adjust=False,
+        progress=False,
+        threads=False,
+        group_by="column",
+        session=session
+    )
     if df is None or df.empty:
-        return pd.DataFrame()
+        try:
+            ticker_obj = yf.Ticker(ticker, session=session)
+            df = ticker_obj.history(period=period, interval=interval, auto_adjust=False)
+        except Exception:
+            return pd.DataFrame()
+        if df is None or df.empty:
+            return pd.DataFrame()
 
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
