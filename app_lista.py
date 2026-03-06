@@ -527,10 +527,11 @@ def _stooq_download(ticker):
             continue
         if not resp.ok or not resp.text:
             continue
-        if not resp.text.startswith("Date,"):
+        text = resp.text.lstrip("\ufeff\r\n\t ")
+        if not text.lower().startswith("date,"):
             continue
         try:
-            df = pd.read_csv(io.StringIO(resp.text), on_bad_lines="skip")
+            df = pd.read_csv(io.StringIO(text), on_bad_lines="skip")
         except Exception:
             df = pd.DataFrame()
         if df is not None and not df.empty:
@@ -2060,6 +2061,41 @@ def api_indicadores():
         "generated_at": datetime.utcnow().isoformat() + "Z",
         "count": len(resultados),
         "data": resultados,
+    }
+    resp = jsonify(payload)
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    return resp
+
+@app.route("/api/stooq-test")
+def api_stooq_test():
+    ticker = request.args.get("ticker", "QQQ")
+    symbol = _stooq_symbol(ticker)
+    urls = [
+        f"https://stooq.com/q/d/l/?s={symbol}&i=d",
+        f"https://stooq.pl/q/d/l/?s={symbol}&i=d",
+    ]
+    session = _get_stooq_session()
+    results = []
+    for url in urls:
+        try:
+            resp = session.get(url, timeout=(5, 20))
+            text = resp.text or ""
+            preview = text.lstrip("\ufeff\r\n\t ")[:200]
+            results.append({
+                "url": url,
+                "status": resp.status_code,
+                "ok": resp.ok,
+                "preview": preview,
+            })
+        except Exception as exc:
+            results.append({
+                "url": url,
+                "error": str(exc),
+            })
+    payload = {
+        "ticker": ticker,
+        "symbol": symbol,
+        "results": results,
     }
     resp = jsonify(payload)
     resp.headers["Access-Control-Allow-Origin"] = "*"
