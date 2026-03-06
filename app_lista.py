@@ -470,13 +470,36 @@ def _get_yf_session():
     session.mount("http://", adapter)
     return session
 
+@lru_cache(maxsize=1)
+def _get_stooq_session():
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/122.0.0.0 Safari/537.36"
+        )
+    })
+    adapter = HTTPAdapter(max_retries=Retry(total=0))
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
 def _use_stooq_only():
+    if os.getenv("USE_YAHOO") == "1":
+        return False
     if os.getenv("USE_STOOQ_ONLY") == "1":
         return True
     # Render sets environment variables like RENDER or RENDER_SERVICE_NAME
-    if os.getenv("RENDER") or os.getenv("RENDER_SERVICE_NAME"):
+    if (
+        os.getenv("RENDER")
+        or os.getenv("RENDER_SERVICE_NAME")
+        or os.getenv("RENDER_SERVICE_ID")
+        or os.getenv("RENDER_GIT_COMMIT")
+    ):
         return True
-    return False
+    # default to Stooq to avoid rate-limit issues in production
+    return True
 
 def _stooq_symbol(ticker):
     symbol = (ticker or "").strip().lower()
@@ -491,9 +514,9 @@ def _stooq_download(ticker):
     if not symbol:
         return pd.DataFrame()
     url = f"https://stooq.com/q/d/l/?s={symbol}&i=d"
-    session = _get_yf_session()
+    session = _get_stooq_session()
     try:
-        resp = session.get(url, timeout=15)
+        resp = session.get(url, timeout=10)
     except Exception:
         return pd.DataFrame()
     if not resp.ok:
