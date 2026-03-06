@@ -514,29 +514,51 @@ def _stooq_download(ticker):
     symbol = _stooq_symbol(ticker)
     if not symbol:
         return pd.DataFrame()
-    url = f"https://stooq.com/q/d/l/?s={symbol}&i=d"
+    urls = [
+        f"https://stooq.com/q/d/l/?s={symbol}&i=d",
+        f"https://stooq.pl/q/d/l/?s={symbol}&i=d",
+    ]
     session = _get_stooq_session()
-    try:
-        resp = session.get(url, timeout=10)
-    except Exception:
-        return pd.DataFrame()
-    if not resp.ok:
-        return pd.DataFrame()
-    try:
-        df = pd.read_csv(io.StringIO(resp.text))
-    except Exception:
-        return pd.DataFrame()
+    df = pd.DataFrame()
+    for url in urls:
+        try:
+            resp = session.get(url, timeout=(5, 20))
+        except Exception:
+            continue
+        if not resp.ok or not resp.text:
+            continue
+        if not resp.text.startswith("Date,"):
+            continue
+        try:
+            df = pd.read_csv(io.StringIO(resp.text), on_bad_lines="skip")
+        except Exception:
+            df = pd.DataFrame()
+        if df is not None and not df.empty:
+            break
     if df is None or df.empty or "Date" not in df.columns:
         return pd.DataFrame()
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
     df = df.dropna(subset=["Date"]).set_index("Date").sort_index()
     cols = ["Open", "High", "Low", "Close", "Volume"]
     if any(col not in df.columns for col in cols):
-        return pd.DataFrame()
+        # Try case-insensitive mapping
+        lower_map = {c.lower(): c for c in df.columns}
+        mapped = {}
+        for col in cols:
+            key = col.lower()
+            if key in lower_map:
+                mapped[col] = lower_map[key]
+        if len(mapped) != len(cols):
+            return pd.DataFrame()
+        df = df.rename(columns={v: k for k, v in mapped.items()})
+        if any(col not in df.columns for col in cols):
+            return pd.DataFrame()
     df = df[cols].copy()
     for col in cols:
         df[col] = pd.to_numeric(df[col], errors="coerce")
-    df = df.dropna(how="any")
+    # Some providers may not send volume; keep rows with price data
+    df = df.dropna(subset=["Open", "High", "Low", "Close"])
+    df["Volume"] = df["Volume"].fillna(0)
     return df
 
 
@@ -1030,7 +1052,7 @@ def process_tickers(tickers, lang: str = DEFAULT_LANG):
         try:
             df = baixar_dados(ticker)
             if df.empty:
-                results[ticker] = {"erro": "No data available"}
+                results[ticker] = {"erro": "No data available (source blocked or empty)"}
                 continue
             prev_close_change_pct = _calc_prev_close_change_pct(df)
 
