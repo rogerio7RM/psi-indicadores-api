@@ -51,6 +51,9 @@ app = Flask(__name__)
 GRAPH_APP_URL = os.getenv("GRAPH_APP_URL", "http://localhost:5000")
 DEFAULT_TICKERS = "QQQ,GLD, SLV, GOOGL, SPY,LLY, PLTR,AMD,BTC,AMZN,SOFI,TSLA,NVDA,NFLX"
 AUTO_RUN_DEFAULT = os.getenv("AUTO_RUN_DEFAULT", "0") == "1"
+TWELVEDATA_API_KEY = os.getenv("TWELVEDATA_API_KEY")
+TWELVEDATA_INTERVAL = os.getenv("TWELVEDATA_INTERVAL", "1day")
+TWELVEDATA_OUTPUTSIZE = int(os.getenv("TWELVEDATA_OUTPUTSIZE", "200"))
 
 SUPPORTED_LANGS = {"pt", "en", "es"}
 DEFAULT_LANG = "pt"
@@ -486,6 +489,9 @@ def _get_stooq_session():
     session.mount("http://", adapter)
     return session
 
+def _get_twelvedata_session():
+    return _get_stooq_session()
+
 def _use_stooq_only():
     if os.getenv("USE_YAHOO") == "1":
         return False
@@ -501,6 +507,57 @@ def _use_stooq_only():
         return True
     # default to Stooq to avoid rate-limit issues in production
     return True
+
+def _twelvedata_download(ticker, interval=None, outputsize=None):
+    if not TWELVEDATA_API_KEY:
+        return pd.DataFrame()
+    interval = interval or TWELVEDATA_INTERVAL
+    outputsize = outputsize or TWELVEDATA_OUTPUTSIZE
+    url = "https://api.twelvedata.com/time_series"
+    params = {
+        "symbol": ticker,
+        "interval": interval,
+        "outputsize": outputsize,
+        "apikey": TWELVEDATA_API_KEY,
+    }
+    session = _get_twelvedata_session()
+    try:
+        resp = session.get(url, params=params, timeout=(5, 20))
+    except Exception:
+        return pd.DataFrame()
+    if not resp.ok:
+        return pd.DataFrame()
+    try:
+        payload = resp.json()
+    except Exception:
+        return pd.DataFrame()
+    if payload.get("status") == "error":
+        return pd.DataFrame()
+    values = payload.get("values") or []
+    if not values:
+        return pd.DataFrame()
+    df = pd.DataFrame(values)
+    if "datetime" not in df.columns:
+        return pd.DataFrame()
+    df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
+    df = df.dropna(subset=["datetime"]).set_index("datetime").sort_index()
+    rename_map = {
+        "open": "Open",
+        "high": "High",
+        "low": "Low",
+        "close": "Close",
+        "volume": "Volume",
+    }
+    df = df.rename(columns=rename_map)
+    cols = ["Open", "High", "Low", "Close", "Volume"]
+    if any(col not in df.columns for col in cols):
+        return pd.DataFrame()
+    df = df[cols].copy()
+    for col in cols:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    df = df.dropna(subset=["Open", "High", "Low", "Close"])
+    df["Volume"] = df["Volume"].fillna(0)
+    return df
 
 def _stooq_symbol(ticker):
     symbol = (ticker or "").strip().lower()
@@ -734,19 +791,40 @@ def _parse_int(raw, default, min_value=None, max_value=None):
 
 def obter_snapshot_preco(ticker):
     """Return current price, previous close and intraday change percentage."""
+    if TWELVEDATA_API_KEY:
+        td_df = _twelvedata_download(ticker, outputsize=5)
+        if not td_df.empty:
+            closes = td_df["Close"].dropna()
+            if not closes.empty:
+                price = _safe_float(closes.iloc[-1])
+                previous_close = _safe_float(closes.iloc[-2]) if len(closes) >= 2 else price
+                change_pct = None
+                if price is not None and previous_close not in (None, 0):
+                    change_pct = ((price - previous_close) / previous_close) * 100
+                return {
+                    "price": price,
+                    "previous_close": previous_close,
+                    "change_pct": change_pct,
+                    "price_source": "previous_close",
+                }
     if _use_stooq_only():
         stooq_df = _stooq_download(ticker)
         if stooq_df.empty:
-            return {"price": None, "previous_close": None, "change_pct": None}
+            return {"price": None, "previous_close": None, "change_pct": None, "price_source": None}
         closes = stooq_df["Close"].dropna()
         if closes.empty:
-            return {"price": None, "previous_close": None, "change_pct": None}
+            return {"price": None, "previous_close": None, "change_pct": None, "price_source": None}
         price = _safe_float(closes.iloc[-1])
         previous_close = _safe_float(closes.iloc[-2]) if len(closes) >= 2 else price
         change_pct = None
         if price is not None and previous_close not in (None, 0):
             change_pct = ((price - previous_close) / previous_close) * 100
-        return {"price": price, "previous_close": previous_close, "change_pct": change_pct}
+        return {
+            "price": price,
+            "previous_close": previous_close,
+            "change_pct": change_pct,
+            "price_source": "previous_close",
+        }
 
     session = _get_yf_session()
     try:
@@ -765,6 +843,7 @@ def obter_snapshot_preco(ticker):
         fast_info,
         ("regularMarketPreviousClose", "previousClose", "previous_close"),
     )
+    price_source = "live" if price is not None else None
 
     if price is None:
         try:
@@ -773,6 +852,7 @@ def obter_snapshot_preco(ticker):
                 closes = hist["Close"].dropna()
                 if not closes.empty:
                     price = _safe_float(closes.iloc[-1])
+                    price_source = "live"
         except Exception:
             pass
 
@@ -798,12 +878,19 @@ def obter_snapshot_preco(ticker):
                 previous_close = _safe_float(closes.iloc[-2])
             elif len(closes) == 1 and previous_close is None:
                 previous_close = _safe_float(closes.iloc[-1])
+            if price_source is None and price is not None:
+                price_source = "previous_close"
 
     change_pct = None
     if price is not None and previous_close not in (None, 0):
         change_pct = ((price - previous_close) / previous_close) * 100
 
-    return {"price": price, "previous_close": previous_close, "change_pct": change_pct}
+    return {
+        "price": price,
+        "previous_close": previous_close,
+        "change_pct": change_pct,
+        "price_source": price_source,
+    }
 
 
 def obter_preco_atual(ticker):
@@ -812,6 +899,11 @@ def obter_preco_atual(ticker):
 
 
 def baixar_dados(ticker, period="6mo", interval="1d"):
+    if TWELVEDATA_API_KEY:
+        td_df = _twelvedata_download(ticker)
+        if td_df is not None and not td_df.empty:
+            return td_df
+
     if _use_stooq_only():
         df = _stooq_download(ticker)
         if df is None or df.empty:
@@ -1056,6 +1148,9 @@ def process_tickers(tickers, lang: str = DEFAULT_LANG):
                 results[ticker] = {"erro": "No data available (source blocked or empty)"}
                 continue
             prev_close_change_pct = _calc_prev_close_change_pct(df)
+            closes = df["Close"].dropna() if "Close" in df.columns else pd.Series(dtype="float64")
+            last_close = _safe_float(closes.iloc[-1]) if not closes.empty else None
+            prev_close = _safe_float(closes.iloc[-2]) if len(closes) >= 2 else last_close
 
             df = calcular_indicadores(df)
             if df.empty:
@@ -1063,20 +1158,24 @@ def process_tickers(tickers, lang: str = DEFAULT_LANG):
                 continue
 
             analisado = analisar(df, lang)
-            snapshot = obter_snapshot_preco(ticker)
-            live_price = snapshot.get("price")
-            previous_close = snapshot.get("previous_close")
-            change_pct = snapshot.get("change_pct")
+            snapshot = None
+            if not _use_stooq_only():
+                snapshot = obter_snapshot_preco(ticker)
+            live_price = snapshot.get("price") if snapshot else None
+            previous_close = snapshot.get("previous_close") if snapshot else None
+            change_pct = snapshot.get("change_pct") if snapshot else None
+            snapshot_source = snapshot.get("price_source") if snapshot else None
 
             if live_price is not None:
                 analisado["price"] = round(float(live_price), 2)
-                analisado["price_source"] = "live"
+                analisado["price_source"] = snapshot_source or "live"
             else:
-                analisado["price"] = analisado.get("close")
-                analisado["price_source"] = "previous_close" if analisado.get("close") is not None else None
+                price_fallback = last_close if last_close is not None else analisado.get("close")
+                analisado["price"] = round(float(price_fallback), 2) if price_fallback is not None else None
+                analisado["price_source"] = "previous_close" if price_fallback is not None else None
 
             if previous_close is None:
-                previous_close = analisado.get("close")
+                previous_close = prev_close if prev_close is not None else analisado.get("close")
             analisado["previous_close"] = round(float(previous_close), 2) if previous_close is not None else None
 
             if change_pct is None and live_price is not None and previous_close not in (None, 0):
