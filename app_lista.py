@@ -50,6 +50,7 @@ app = Flask(__name__)
 
 GRAPH_APP_URL = os.getenv("GRAPH_APP_URL", "http://localhost:5000")
 DEFAULT_TICKERS = "QQQ,GLD, SLV, GOOGL, SPY,LLY, PLTR,AMD,BTC,AMZN,SOFI,TSLA,NVDA,NFLX"
+AUTO_RUN_DEFAULT = os.getenv("AUTO_RUN_DEFAULT", "0") == "1"
 
 SUPPORTED_LANGS = {"pt", "en", "es"}
 DEFAULT_LANG = "pt"
@@ -1952,6 +1953,8 @@ def send_indicator_report_email(ticker_string=None, lang: str = DEFAULT_LANG):
 # =============================
 @app.route("/", methods=["GET","POST"])
 def index():
+    if request.method == "HEAD":
+        return ("", 204)
     resultados = {}
     erro = None
     tickers = normalize_ticker_string(DEFAULT_TICKERS)
@@ -1967,7 +1970,7 @@ def index():
             resultados = process_tickers(symbols, lang)
     else:
         symbols = split_tickers(tickers)
-        if symbols:
+        if AUTO_RUN_DEFAULT and symbols:
             resultados = process_tickers(symbols, lang)
 
     return render_template("lista.html",
